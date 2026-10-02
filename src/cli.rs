@@ -24,6 +24,17 @@ pub enum Commands {
     /// Display dashboard of all managed bots and live status
     List(ListArgs),
 
+    /// Manage bot fleet entries in configuration
+    #[command(subcommand)]
+    Bot(BotSubcommands),
+
+    /// Manage bot command menus in configuration
+    #[command(subcommand)]
+    Cmd(CmdSubcommands),
+
+    /// Import existing bot specifications from live Telegram Bot API or host configs
+    Import(ImportArgs),
+
     /// Authenticate `MTProto` user session for `BotFather` automation
     Login(LoginArgs),
 
@@ -32,6 +43,137 @@ pub enum Commands {
 
     /// Generate a starter bots.toml template
     Init(InitArgs),
+}
+
+#[derive(Debug, Subcommand)]
+pub enum BotSubcommands {
+    /// Add or update bot metadata in bots.toml
+    Set(BotSetArgs),
+
+    /// Remove a bot from bots.toml
+    Rm(BotRmArgs),
+}
+
+#[derive(Debug, Args)]
+pub struct BotSetArgs {
+    /// Bot ID key in bots.toml (e.g. 'ryoiki', 'tayori')
+    pub bot_id: String,
+
+    /// Display name of the bot
+    #[arg(short, long)]
+    pub name: Option<String>,
+
+    /// Bot API token or '`env:VAR_NAME`'
+    #[arg(short, long)]
+    pub token: Option<String>,
+
+    /// Full bot description
+    #[arg(short, long)]
+    pub desc: Option<String>,
+
+    /// Short bot description (max 120 chars)
+    #[arg(short = 's', long = "short-desc")]
+    pub short_desc: Option<String>,
+
+    /// Local file path to profile avatar image
+    #[arg(long)]
+    pub avatar: Option<String>,
+
+    /// Local file path to intro video cover
+    #[arg(long)]
+    pub cover: Option<String>,
+
+    /// Privacy mode toggle (true/false)
+    #[arg(long)]
+    pub privacy: Option<bool>,
+
+    /// Group join toggle (true/false)
+    #[arg(long)]
+    pub join_groups: Option<bool>,
+
+    /// Path to declarative bots configuration file
+    #[arg(short, long, default_value = "bots.toml")]
+    pub config: PathBuf,
+}
+
+#[derive(Debug, Args)]
+pub struct BotRmArgs {
+    /// Bot ID key to remove
+    pub bot_id: String,
+
+    /// Path to declarative bots configuration file
+    #[arg(short, long, default_value = "bots.toml")]
+    pub config: PathBuf,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum CmdSubcommands {
+    /// Add or update a command in bots.toml
+    Add(CmdAddArgs),
+
+    /// Remove a command from bots.toml
+    Rm(CmdRmArgs),
+
+    /// List configured commands for a bot
+    List(CmdListArgs),
+}
+
+#[derive(Debug, Args)]
+pub struct CmdAddArgs {
+    /// Target bot ID (e.g. 'ryoiki')
+    pub bot_id: String,
+
+    /// Command name without slash (e.g. 'status')
+    pub command: String,
+
+    /// Description of what the command does
+    pub description: String,
+
+    /// Path to declarative bots configuration file
+    #[arg(short, long, default_value = "bots.toml")]
+    pub config: PathBuf,
+}
+
+#[derive(Debug, Args)]
+pub struct CmdRmArgs {
+    /// Target bot ID
+    pub bot_id: String,
+
+    /// Command name to remove
+    pub command: String,
+
+    /// Path to declarative bots configuration file
+    #[arg(short, long, default_value = "bots.toml")]
+    pub config: PathBuf,
+}
+
+#[derive(Debug, Args)]
+pub struct CmdListArgs {
+    /// Target bot ID
+    pub bot_id: String,
+
+    /// Path to declarative bots configuration file
+    #[arg(short, long, default_value = "bots.toml")]
+    pub config: PathBuf,
+}
+
+#[derive(Debug, Args)]
+pub struct ImportArgs {
+    /// Target bot ID to assign in bots.toml (default: bot username)
+    #[arg(short, long)]
+    pub id: Option<String>,
+
+    /// Telegram Bot token (or '`env:VAR_NAME`') to import
+    #[arg(short, long)]
+    pub token: Option<String>,
+
+    /// Automatically discover known bot configurations on host (~/.config/ryoiki, ~/.config/tayori)
+    #[arg(short, long)]
+    pub auto: bool,
+
+    /// Path to declarative bots configuration file
+    #[arg(short, long, default_value = "bots.toml")]
+    pub config: PathBuf,
 }
 
 #[derive(Debug, Args)]

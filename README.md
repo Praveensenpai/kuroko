@@ -72,6 +72,16 @@ Kuroko operates a **hybrid dual-engine architecture**:
 
 ## 🚀 Quick Start
 
+### 🪄 One-Liner Magic (Recommended)
+
+Install `kuroko` in seconds with automatic architecture detection and shell `$PATH` setup:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Praveensenpai/kuroko/main/install.sh | bash
+```
+
+<br>
+
 ### 🛠️ Building From Source
 
 Prerequisites: A working Rust toolchain (`cargo` 1.85+ recommended).
@@ -175,37 +185,66 @@ description = "Mute notifications for 1 hour"
 Usage: kuroko <COMMAND>
 
 Commands:
-  diff   Show differences between local bots.toml and live Telegram state
-  apply  Reconcile and apply declarative configuration to Telegram
-  list   Display dashboard of all managed bots and live status
-  login  Authenticate MTProto user session for BotFather automation
-  new    Create a new bot via @BotFather and save credentials
-  init   Generate a starter bots.toml template
-  help   Print this message or the help of the given subcommand(s)
+  diff    Show differences between local bots.toml and live Telegram state
+  apply   Reconcile and apply declarative configuration to Telegram
+  list    Display dashboard of all managed bots and live status
+  bot     Manage bot fleet entries in configuration (set / rm)
+  cmd     Manage bot command menus in configuration (add / rm / list)
+  import  Import existing bot specifications from live Telegram API or host configs
+  login   Authenticate MTProto user session for BotFather automation
+  new     Create a new bot via @BotFather and save credentials
+  init    Generate a starter bots.toml template
+  help    Print this message or the help of the given subcommand(s)
 ```
 
-### Subcommand Examples:
+### CLI Command Highlights:
 
-- **Compare Fleet State**:
+- **Configure Bots Programmatically (No Manual TOML Editing)**:
   ```bash
-  kuroko diff --file bots.toml
-  # Or target a single bot:
-  kuroko diff --file bots.toml --bot notify_bot
+  # Add or update a bot in bots.toml
+  kuroko bot set ryoiki \
+    --name "領域 Ryoiki Bot" \
+    --token "env:RYOIKI_BOT_TOKEN" \
+    --desc "🌊 領域 (Ryoiki) — Server Control & Download Manager" \
+    --short-desc "Server management & torrent orchestrator"
+
+  # Remove a bot from the fleet
+  kuroko bot rm old_bot
   ```
 
-- **Reconcile Live Bots**:
+- **Manage Bot Command Menus**:
   ```bash
-  # Apply all changes (HTTP + MTProto)
-  kuroko apply --file bots.toml
+  # Add or update commands
+  kuroko cmd add ryoiki status "Show system health, CPU, RAM, & active downloads"
+  kuroko cmd add ryoiki torrents "List all active, completed, or downloading torrents"
+  kuroko cmd add ryoiki storage "Inspect disk partition usage and drive health"
 
-  # Skip MTProto operations (HTTP Bot API only)
-  kuroko apply --file bots.toml --no-mtproto
+  # Remove a command
+  kuroko cmd rm ryoiki old_command
+
+  # List configured commands for a bot
+  kuroko cmd list ryoiki
   ```
 
-- **Interactive Bot Creation**:
+- **Auto-Import Existing Bots**:
   ```bash
-  # Automatically triggers @BotFather /newbot over MTProto
-  kuroko new --name "My Media Bot" --username "my_media_ops_bot" --output bots.toml
+  # Automatically discover host configs (~/.config/ryoiki, ~/.config/tayori) and fetch live state
+  kuroko import --auto
+
+  # Or import an individual bot by token
+  kuroko import --token "123456:ABC-DEF..." --id my_bot
+  ```
+
+- **Preview & Reconcile**:
+  ```bash
+  # Show colored diff
+  kuroko diff
+
+  # Apply changes (HTTP Bot API only)
+  kuroko apply --http-only
+
+  # Full apply (HTTP + MTProto BotFather)
+  kuroko apply
   ```
 
 ---

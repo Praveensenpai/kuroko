@@ -264,6 +264,21 @@ Controller Dispatcher (controller.rs)
 - **Consumers**: `src/main.rs`.
 - **Side Effects / I/O**: Network calls via HTTP and MTProto, console outputs.
 
+### `src/mutate.rs` (Role: domain/mutation, Lines: 299)
+- **Responsibility**: Programmatic CLI mutations of bots.toml (bot metadata, command menus, and live host bot auto-import).
+- **Imports**: `crate::cli::*, crate::domain::spec::*, crate::infra::config::*, crate::infra::http::client::BotApiClient`
+- **Public Functions & Signatures**:
+  ```rust
+  pub fn handle_bot_set(args: &BotSetArgs) -> Result<()>;
+  pub fn handle_bot_rm(args: &BotRmArgs) -> Result<()>;
+  pub fn handle_cmd_add(args: &CmdAddArgs) -> Result<()>;
+  pub fn handle_cmd_rm(args: &CmdRmArgs) -> Result<()>;
+  pub fn handle_cmd_list(args: &CmdListArgs) -> Result<()>;
+  pub async fn handle_import(args: ImportArgs) -> Result<()>;
+  ```
+- **Consumers**: `src/main.rs`.
+- **Side Effects / I/O**: Reads/writes `bots.toml`, reads host configs (`~/.config/ryoiki`, `~/.config/tayori`), queries Bot API.
+
 ### `src/main.rs` (Role: entrypoint, Lines: 298)
 - **Responsibility**: Binary entrypoint parsing CLI commands, resolving configs, prompting confirmations, and delegating execution.
 - **Imports**: `anyhow::{Context, Result}, clap::Parser, colored::*, dialoguer::Confirm, kuroko::{cli::*, controller::*, domain::spec::FleetSpec, infra::config::*, infra::mtproto::client::MtprotoClient, infra::mtproto::botfather::BotFatherAutomation}`

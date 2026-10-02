@@ -21,6 +21,16 @@ async fn main() -> Result<()> {
         Commands::Diff(args) => handle_diff(args).await?,
         Commands::Apply(args) => handle_apply(args).await?,
         Commands::List(args) => handle_list(args).await?,
+        Commands::Bot(sub) => match sub {
+            kuroko::cli::BotSubcommands::Set(args) => kuroko::mutate::handle_bot_set(&args)?,
+            kuroko::cli::BotSubcommands::Rm(args) => kuroko::mutate::handle_bot_rm(&args)?,
+        },
+        Commands::Cmd(sub) => match sub {
+            kuroko::cli::CmdSubcommands::Add(args) => kuroko::mutate::handle_cmd_add(&args)?,
+            kuroko::cli::CmdSubcommands::Rm(args) => kuroko::mutate::handle_cmd_rm(&args)?,
+            kuroko::cli::CmdSubcommands::List(args) => kuroko::mutate::handle_cmd_list(&args)?,
+        },
+        Commands::Import(args) => kuroko::mutate::handle_import(args).await?,
         Commands::Login(args) => handle_login(args).await?,
         Commands::New(args) => handle_new(args).await?,
     }
@@ -84,12 +94,13 @@ description = "Show help and commands"
 }
 
 async fn handle_diff(args: DiffArgs) -> Result<()> {
-    let config = BotsConfig::from_file(&args.config)?;
+    let path = kuroko::infra::config::resolve_bots_config_path(&args.config);
+    let config = BotsConfig::from_file(&path)?;
     let targets = select_target_bots(&config, args.bot.as_deref())?;
 
     println!(
         "🔍 Comparing local [{}] with live Telegram servers...",
-        args.config.display().to_string().cyan()
+        path.display().to_string().cyan()
     );
 
     for (bot_id, bot_spec) in targets {
@@ -109,12 +120,13 @@ async fn handle_apply(args: ApplyArgs) -> Result<()> {
         .await;
     }
 
-    let config = BotsConfig::from_file(&args.config)?;
+    let path = kuroko::infra::config::resolve_bots_config_path(&args.config);
+    let config = BotsConfig::from_file(&path)?;
     let targets = select_target_bots(&config, args.bot.as_deref())?;
 
     println!(
         "⚡ Reconciling Telegram fleet with [{}]...",
-        args.config.display().to_string().cyan()
+        path.display().to_string().cyan()
     );
 
     let mut mtproto: Option<MtprotoEngine> = None;
@@ -155,7 +167,8 @@ async fn handle_apply(args: ApplyArgs) -> Result<()> {
 }
 
 async fn handle_list(args: ListArgs) -> Result<()> {
-    let config = BotsConfig::from_file(&args.config)?;
+    let path = kuroko::infra::config::resolve_bots_config_path(&args.config);
+    let config = BotsConfig::from_file(&path)?;
     let mut rows = Vec::new();
 
     println!("Querying status for {} bot(s)...", config.bots.len());

@@ -87,6 +87,20 @@ pub fn resolve_path(p: &str) -> PathBuf {
     }
 }
 
+pub fn resolve_bots_config_path(arg_path: &Path) -> PathBuf {
+    if arg_path != Path::new("bots.toml") {
+        return arg_path.to_path_buf();
+    }
+    if Path::new("bots.toml").exists() {
+        return PathBuf::from("bots.toml");
+    }
+    let global = KurokoConfig::config_dir().join("bots.toml");
+    if global.exists() {
+        return global;
+    }
+    PathBuf::from("bots.toml")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

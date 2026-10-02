@@ -1,6 +1,6 @@
 use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::Path;
 
@@ -9,7 +9,18 @@ pub struct BotsConfig {
     #[serde(default)]
     pub settings: Option<GlobalSettings>,
     #[serde(default)]
-    pub bots: HashMap<String, BotSpec>,
+    pub bots: BTreeMap<String, BotSpec>,
+}
+
+impl Default for BotsConfig {
+    fn default() -> Self {
+        Self {
+            settings: Some(GlobalSettings {
+                default_language: default_language(),
+            }),
+            bots: BTreeMap::new(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -81,6 +92,62 @@ impl BotsConfig {
             bot.validate(id)?;
         }
         Ok(())
+    }
+
+    pub fn save_file<P: AsRef<Path>>(&self, path: P) -> Result<()> {
+        let content =
+            toml::to_string_pretty(self).context("Failed to serialize BotsConfig to TOML")?;
+        if let Some(parent) = path.as_ref().parent() {
+            if !parent.as_os_str().is_empty() && !parent.exists() {
+                fs::create_dir_all(parent)
+                    .with_context(|| format!("Failed to create directory: {}", parent.display()))?;
+            }
+        }
+        fs::write(path.as_ref(), content)
+            .with_context(|| format!("Failed to write config file: {}", path.as_ref().display()))?;
+        Ok(())
+    }
+
+    pub fn get_or_create_bot(&mut self, id: &str) -> &mut BotSpec {
+        self.bots.entry(id.to_string()).or_default()
+    }
+
+    pub fn remove_bot(&mut self, id: &str) -> bool {
+        self.bots.remove(id).is_some()
+    }
+
+    pub fn add_or_update_command(
+        &mut self,
+        bot_id: &str,
+        command: &str,
+        description: String,
+    ) -> Result<()> {
+        validate_command_name(command, bot_id)?;
+        if description.is_empty() || description.len() > 256 {
+            bail!("Bot '{bot_id}' command description must be 1-256 characters");
+        }
+        let clean_cmd = command.strip_prefix('/').unwrap_or(command).to_string();
+        let bot = self.get_or_create_bot(bot_id);
+        if let Some(existing) = bot.commands.iter_mut().find(|c| c.command == clean_cmd) {
+            existing.description = description;
+        } else {
+            bot.commands.push(CommandSpec {
+                command: clean_cmd,
+                description,
+            });
+        }
+        Ok(())
+    }
+
+    pub fn remove_command(&mut self, bot_id: &str, command: &str) -> bool {
+        let clean_cmd = command.strip_prefix('/').unwrap_or(command);
+        if let Some(bot) = self.bots.get_mut(bot_id) {
+            let initial_len = bot.commands.len();
+            bot.commands.retain(|c| c.command != clean_cmd);
+            bot.commands.len() < initial_len
+        } else {
+            false
+        }
     }
 }
 
@@ -215,5 +282,34 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(bot.resolve_token(), Some("secret123".to_string()));
+    }
+
+    #[test]
+    fn test_mutation_add_and_remove_commands() {
+        let mut cfg = BotsConfig::default();
+        let res = cfg.add_or_update_command("mybot", "status", "Check health".to_string());
+        assert!(res.is_ok());
+
+        let bot = cfg.bots.get("mybot");
+        assert!(bot.is_some());
+        if let Some(b) = bot {
+            assert_eq!(b.commands.len(), 1);
+            assert_eq!(b.commands[0].command, "status");
+            assert_eq!(b.commands[0].description, "Check health");
+        }
+
+        // Update description
+        let res_update =
+            cfg.add_or_update_command("mybot", "/status", "Updated health".to_string());
+        assert!(res_update.is_ok());
+        assert_eq!(cfg.bots["mybot"].commands[0].description, "Updated health");
+
+        // Remove command
+        assert!(cfg.remove_command("mybot", "status"));
+        assert_eq!(cfg.bots["mybot"].commands.len(), 0);
+
+        // Remove bot
+        assert!(cfg.remove_bot("mybot"));
+        assert!(!cfg.bots.contains_key("mybot"));
     }
 }
