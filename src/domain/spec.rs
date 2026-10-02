@@ -2,7 +2,7 @@ use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct BotsConfig {
@@ -155,7 +155,14 @@ impl BotSpec {
     pub fn resolve_token(&self) -> Option<String> {
         let raw = self.token.as_ref()?.trim();
         if let Some(var) = raw.strip_prefix("env:") {
-            std::env::var(var.trim()).ok()
+            if let Ok(val) = std::env::var(var.trim()) {
+                if !val.trim().is_empty() {
+                    return Some(val);
+                }
+            }
+            resolve_known_token_fallback(var.trim())
+        } else if let Some(file_ref) = raw.strip_prefix("file:") {
+            resolve_file_token(file_ref)
         } else if !raw.is_empty() {
             Some(raw.to_string())
         } else {
@@ -194,6 +201,71 @@ impl BotSpec {
 
         Ok(())
     }
+}
+
+fn resolve_known_token_fallback(var_name: &str) -> Option<String> {
+    let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+    match var_name {
+        "RYOIKI_BOT_TOKEN" => {
+            let path = Path::new(&home).join(".config/ryoiki/telegram.json");
+            resolve_token_from_json(&path, "bot_token")
+        }
+        "TAYORI_BOT_TOKEN" => {
+            let path = Path::new(&home).join(".config/tayori/config.toml");
+            resolve_token_from_toml(&path, "bot_token")
+        }
+        _ => None,
+    }
+}
+
+fn resolve_file_token(file_ref: &str) -> Option<String> {
+    let parts: Vec<&str> = file_ref.splitn(2, ':').collect();
+    if parts.len() != 2 {
+        return None;
+    }
+    let (file_path_str, key) = (parts[0], parts[1]);
+    let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+    let path = if let Some(stripped) = file_path_str.strip_prefix("~/") {
+        Path::new(&home).join(stripped)
+    } else {
+        PathBuf::from(file_path_str)
+    };
+
+    if Path::new(file_path_str)
+        .extension()
+        .is_some_and(|ext| ext.eq_ignore_ascii_case("json"))
+    {
+        resolve_token_from_json(&path, key)
+    } else {
+        resolve_token_from_toml(&path, key)
+    }
+}
+
+fn resolve_token_from_json(path: &Path, key: &str) -> Option<String> {
+    let content = fs::read_to_string(path).ok()?;
+    let val: serde_json::Value = serde_json::from_str(&content).ok()?;
+    val.get(key)
+        .and_then(serde_json::Value::as_str)
+        .map(ToString::to_string)
+}
+
+fn resolve_token_from_toml(path: &Path, key: &str) -> Option<String> {
+    let content = fs::read_to_string(path).ok()?;
+    for line in content.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with(key) {
+            let clean = trimmed
+                .split('=')
+                .nth(1)?
+                .trim()
+                .trim_matches('"')
+                .trim_matches('\'');
+            if !clean.is_empty() {
+                return Some(clean.to_string());
+            }
+        }
+    }
+    None
 }
 
 fn validate_command_name(name: &str, bot_id: &str) -> Result<()> {
@@ -311,5 +383,19 @@ mod tests {
         // Remove bot
         assert!(cfg.remove_bot("mybot"));
         assert!(!cfg.bots.contains_key("mybot"));
+    }
+
+    #[test]
+    fn test_token_resolution_from_file() {
+        let temp_dir = std::env::temp_dir();
+        let json_file = temp_dir.join("test_token.json");
+        std::fs::write(&json_file, r#"{"my_token": "secret_file_123"}"#).unwrap();
+
+        let bot = BotSpec {
+            token: Some(format!("file:{}:my_token", json_file.display())),
+            ..Default::default()
+        };
+        assert_eq!(bot.resolve_token(), Some("secret_file_123".to_string()));
+        let _ = std::fs::remove_file(json_file);
     }
 }

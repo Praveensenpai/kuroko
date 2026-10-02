@@ -60,7 +60,11 @@ pub struct BotDiff {
 
 impl BotDiff {
     pub fn is_in_sync(&self) -> bool {
-        self.actions.is_empty()
+        self.fields.is_empty()
+            && self
+                .commands
+                .iter()
+                .all(|c| c.change_type == ChangeType::Unchanged)
     }
 
     pub fn compute(bot_id: &str, desired: &BotSpec, remote: &RemoteBotState) -> Self {

@@ -78,11 +78,11 @@ Controller Dispatcher (controller.rs)
       pub fn validate(&self) -> Result<()>;
   }
   impl BotSpec {
-      pub fn resolve_token(&self) -> Result<String>;
+      pub fn resolve_token(&self) -> Option<String>;
   }
   ```
 - **Consumers**: `src/controller.rs`, `src/domain/diff.rs`, `src/main.rs`.
-- **Side Effects / I/O**: Reads files from disk (`std::fs::read_to_string`), reads environment variables (`std::env::var`).
+- **Side Effects / I/O**: Reads files from disk (`std::fs::read_to_string`), reads environment variables (`std::env::var`), supports smart fallback to `~/.config/ryoiki/telegram.json` and `~/.config/tayori/config.toml` or `file:...` references.
 
 ### `src/domain/diff.rs` (Role: domain, Lines: 325)
 - **Responsibility**: Reconciles live Telegram state against local desired spec and computes discrete diff actions.
