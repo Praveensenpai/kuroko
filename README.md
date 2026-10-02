@@ -13,7 +13,7 @@
 
 <br>
 
-[⚡ Quick Start](#-quick-start) • [✨ Key Features](#-key-features) • [🔄 Architecture](#-architecture--workflow) • [💻 CLI Commands](#-cli-commands) • [⚙️ Configuration](#%EF%B8%8F-configuration-spec) • [📜 License](#-license)
+[⚡ Quick Start](#-quick-start) • [✨ Key Features](#-key-features) • [🔄 Architecture](#-architecture--workflow) • [⚡ CLI Workflows](#-zero-manual-cli-workflows) • [💻 CLI Reference](#-cli-commands) • [📜 License](#-license)
 
 </div>
 
@@ -134,45 +134,53 @@ kuroko apply --yes
 
 ---
 
-## ⚙️ Configuration Spec
+## ⚡ Zero-Manual CLI Workflows
 
-Define your bots declaratively in `bots.toml`:
+Never write or edit raw TOML files manually. Kuroko provides a complete suite of commands to configure and inspect your bot fleet directly from your terminal:
 
-```toml
-[settings]
-default_language = "en"
+### 1. Auto-Import Existing Bots
+```bash
+# Automatically detects local bots (~/.config/ryoiki, ~/.config/tayori) and queries Telegram API
+kuroko import --auto
 
-# ========================================================
-# System Notification Bot
-# ========================================================
-[bots.notify_bot]
-name = "Alert Hub"
-token = "env:TELEGRAM_NOTIFY_BOT_TOKEN"
-avatar = "assets/notify_avatar.png"
-cover = "assets/notify_cover.mp4"
+# Or import an individual bot by its token
+kuroko import --token "123456:ABC-DEF..." --id my_bot
+```
 
-[bots.notify_bot.description]
-text = "Official notification dispatcher for home infrastructure."
+### 2. Configure Bot Metadata
+```bash
+# Add or update a bot's name, token, and descriptions
+kuroko bot set ryoiki \
+  --name "領域 Ryoiki Bot" \
+  --token "env:RYOIKI_BOT_TOKEN" \
+  --desc "🌊 領域 (Ryoiki) — Server Control & Download Manager" \
+  --short-desc "Server management & torrent orchestrator"
 
-[bots.notify_bot.short_description]
-text = "Real-time alerts and telemetry."
+# Remove a bot from the fleet
+kuroko bot rm old_bot
+```
 
-[bots.notify_bot.settings]
-privacy_mode = true
-can_join_groups = false
-inline_mode = false
+### 3. Manage Command Menus
+```bash
+# Add commands with one clean command
+kuroko cmd add ryoiki status "Show system health, CPU, RAM, & active downloads"
+kuroko cmd add ryoiki torrents "List all active, completed, or downloading torrents"
+kuroko cmd add ryoiki storage "Inspect disk partition usage and drive health"
 
-[[bots.notify_bot.commands]]
-command = "start"
-description = "Initialize alerts"
+# List configured commands for any bot
+kuroko cmd list ryoiki
 
-[[bots.notify_bot.commands]]
-command = "status"
-description = "Check fleet health and metrics"
+# Remove a command
+kuroko cmd rm ryoiki old_cmd
+```
 
-[[bots.notify_bot.commands]]
-command = "mute"
-description = "Mute notifications for 1 hour"
+### 4. Review & Deploy
+```bash
+# Inspect changes before touching production
+kuroko diff
+
+# Apply changes to Telegram immediately
+kuroko apply --http-only
 ```
 
 ---
