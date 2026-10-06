@@ -1,7 +1,9 @@
 use anyhow::{Context, Result};
 use clap::Parser;
 use colored::Colorize;
-use kuroko::cli::{ApplyArgs, Cli, Commands, DiffArgs, InitArgs, ListArgs, LoginArgs, NewArgs};
+use kuroko::cli::{
+    ApplyArgs, Cli, Commands, DiffArgs, InitArgs, ListArgs, LoginArgs, NewArgs, ReadArgs, SendArgs,
+};
 use kuroko::controller::{apply_action, compute_single_diff, select_target_bots};
 use kuroko::domain::diff::BotDiff;
 use kuroko::domain::spec::BotsConfig;
@@ -11,6 +13,7 @@ use kuroko::infra::mtproto::{BotFatherClient, MtprotoEngine};
 use kuroko::ui::table::FleetBotRow;
 use kuroko::ui::{render_diff, render_fleet_table};
 use std::fs;
+use std::time::Duration;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -33,6 +36,8 @@ async fn main() -> Result<()> {
         Commands::Import(args) => kuroko::mutate::handle_import(args).await?,
         Commands::Login(args) => handle_login(args).await?,
         Commands::New(args) => handle_new(args).await?,
+        Commands::Send(args) => handle_send(args).await?,
+        Commands::Read(args) => handle_read(args).await?,
     }
 
     Ok(())
@@ -307,5 +312,23 @@ async fn handle_new(args: NewArgs) -> Result<()> {
         username.to_uppercase().replace('-', "_")
     );
 
+    Ok(())
+}
+
+async fn handle_send(args: SendArgs) -> Result<()> {
+    let engine = kuroko::infra::mtproto::connect_authorized().await?;
+    let client = engine.client();
+    let peer = kuroko::infra::mtproto::resolve_peer(client, &args.peer).await?;
+    let text = args.message.join(" ");
+    kuroko::infra::mtproto::send_and_wait(client, peer, &text, Duration::from_secs(args.timeout))
+        .await?;
+    Ok(())
+}
+
+async fn handle_read(args: ReadArgs) -> Result<()> {
+    let engine = kuroko::infra::mtproto::connect_authorized().await?;
+    let client = engine.client();
+    let peer = kuroko::infra::mtproto::resolve_peer(client, &args.peer).await?;
+    kuroko::infra::mtproto::read_latest(client, peer, args.count).await?;
     Ok(())
 }

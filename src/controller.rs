@@ -1,6 +1,5 @@
 use crate::domain::diff::{BotDiff, DiffAction};
 use crate::domain::spec::{BotSpec, BotsConfig};
-use crate::infra::config::KurokoConfig;
 use crate::infra::http::BotApiClient;
 use crate::infra::mtproto::{BotFatherClient, MtprotoEngine};
 use anyhow::{bail, Context, Result};
@@ -196,15 +195,6 @@ async fn ensure_mtproto_ready(engine: &mut Option<MtprotoEngine>) -> Result<()> 
     if engine.is_some() {
         return Ok(());
     }
-    let config = KurokoConfig::load();
-    let (api_id, api_hash) = config.get_api_credentials().context(
-        "MTProto operation requires Telegram API credentials. Run `kuroko login` first or set TELEGRAM_API_ID & TELEGRAM_API_HASH",
-    )?;
-
-    let client = MtprotoEngine::connect(api_id, &api_hash).await?;
-    if !client.is_authorized().await? {
-        bail!("MTProto session not authorized. Please run `kuroko login` first.");
-    }
-    *engine = Some(client);
+    *engine = Some(crate::infra::mtproto::connect_authorized().await?);
     Ok(())
 }

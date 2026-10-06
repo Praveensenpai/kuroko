@@ -41,6 +41,12 @@ pub enum Commands {
     /// Create a new bot via `@BotFather` and save credentials
     New(NewArgs),
 
+    /// Send a message through the logged-in user session and print the reply
+    Send(SendArgs),
+
+    /// Print the latest messages from a chat without sending anything
+    Read(ReadArgs),
+
     /// Generate a starter bots.toml template
     Init(InitArgs),
 }
@@ -231,6 +237,30 @@ pub struct NewArgs {
     /// Desired username (ending in bot)
     #[arg(short, long)]
     pub username: Option<String>,
+}
+
+#[derive(Debug, Args)]
+pub struct SendArgs {
+    /// Username to message, with or without the leading `@`
+    pub peer: String,
+
+    /// Message text to send
+    #[arg(required = true, trailing_var_arg = true, allow_hyphen_values = true)]
+    pub message: Vec<String>,
+
+    /// Seconds to wait for a reply
+    #[arg(long, default_value_t = 20)]
+    pub timeout: u64,
+}
+
+#[derive(Debug, Args)]
+pub struct ReadArgs {
+    /// Username to read from, with or without the leading `@`
+    pub peer: String,
+
+    /// Number of recent messages to print
+    #[arg(short = 'n', long, default_value_t = 5)]
+    pub count: usize,
 }
 
 #[derive(Debug, Args)]
