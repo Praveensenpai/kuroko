@@ -52,22 +52,39 @@ pub fn render_message(msg: &Message) -> String {
     let who = if msg.outgoing() { "me" } else { "them" };
     let mut out = String::new();
     let _ = writeln!(out, "[{who}] {}", msg.text());
-    if let Some(tl::enums::ReplyMarkup::ReplyInlineMarkup(markup)) = msg.reply_markup() {
-        for row in markup.rows {
-            let tl::enums::KeyboardButtonRow::Row(r) = row;
-            for btn in r.buttons {
-                match btn {
-                    tl::enums::KeyboardButton::Callback(cb) => {
-                        let data = String::from_utf8_lossy(&cb.data);
-                        let text = cb.text;
-                        let _ = writeln!(out, "   [button] \"{text}\" data=\"{data}\"");
-                    }
-                    other => {
-                        let _ = writeln!(out, "   [button] {other:?}");
+    match msg.reply_markup() {
+        Some(tl::enums::ReplyMarkup::ReplyInlineMarkup(markup)) => {
+            for row in markup.rows {
+                let tl::enums::KeyboardButtonRow::Row(r) = row;
+                for btn in r.buttons {
+                    match btn {
+                        tl::enums::KeyboardButton::Callback(cb) => {
+                            let data = String::from_utf8_lossy(&cb.data);
+                            let text = cb.text;
+                            let _ = writeln!(out, "   [button] \"{text}\" data=\"{data}\"");
+                        }
+                        other => {
+                            let _ = writeln!(out, "   [button] {other:?}");
+                        }
                     }
                 }
             }
         }
+        Some(tl::enums::ReplyMarkup::ReplyKeyboardMarkup(markup)) => {
+            for row in markup.rows {
+                let tl::enums::KeyboardButtonRow::Row(r) = row;
+                for btn in r.buttons {
+                    if let tl::enums::KeyboardButton::Button(b) = btn {
+                        let _ = writeln!(out, "   [key] \"{}\"", b.text);
+                    }
+                }
+            }
+        }
+        Some(
+            tl::enums::ReplyMarkup::ReplyKeyboardHide(_)
+            | tl::enums::ReplyMarkup::ReplyKeyboardForceReply(_),
+        )
+        | None => {}
     }
     out
 }

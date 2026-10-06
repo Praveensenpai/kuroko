@@ -1,330 +1,282 @@
-# CODEBASE.md: Kuroko (黒子) Semantic Digest
+# CODEBASE.md: kuroko Semantic Digest
 
-> **Notice**: This file is an AI-optimized semantic index. Do not write narrative prose. Keep token density high.
+> **Notice**: AI-optimized semantic index. Do not write narrative prose. Keep token density high.
 
 ## 1. System Topology & Data Flow
 ```text
-CLI Invocation (cli.rs / main.rs)
-       │
-       ▼
-Spec Loader & Validator (domain/spec.rs) ── parses ──> bots.toml
-       │
-       ▼
-Controller Dispatcher (controller.rs)
-  ├── Diff / Apply Engine (domain/diff.rs)
-  │     ├── Remote Fetcher (infra/http/client.rs) ── queries ──> Telegram Bot API
-  │     ├── Diff Calculator (domain/diff.rs) ── computes ──> Vec<DiffAction>
-  │     ├── Visual Diff Renderer (ui/diff_view.rs)
-  │     ├── Bot API Mutator (infra/http/client.rs) ── writes ──> Names, Commands, Descriptions
-  │     └── BotFather Automator (infra/mtproto/botfather.rs) ── automates ──> Avatars, Covers, Settings
-  ├── Bot Creator (infra/mtproto/botfather.rs) ── interactive /newbot ──> Telegram MTProto
-  └── Session Auth (infra/mtproto/client.rs) ── QR / Phone / 2FA ──> SQLite Session DB (~/.config/kuroko/session.db)
+Entrypoint ──> CLI/Parser ──> Domain Logic ──> Infra/IO
 ```
 
 ## 2. Global Constraints & Architecture Patterns
-- **Primary Language & Edition**: Rust 2024 Edition (`1.85+`).
-- **Architectural Paradigm**: Strict role-based division (`domain/`, `infra/`, `ui/`, `cli.rs`, `controller.rs`).
-- **Hard Constraints**: <400 lines/file (300 soft), <60 lines/fn (40 soft), zero production `unwrap()`/`expect()`, zero dead code warnings (`-D warnings`).
-- **State Reconciliation**: Declarative "Bot-as-Code" idempotency; calculate `DiffAction` state changes before mutation.
-- **Dual Telegram Client Strategy**:
-  - HTTP Bot API (`reqwest`) for fast, non-privileged operations (commands, descriptions, names).
-  - MTProto (`grammers-client` with SQLite session) for BotFather backstage orchestration (avatars, covers, privacy settings, bot creation).
+- **Primary Language**: Rust 2021 edition
+- **Architectural Paradigm**: Role-based (domain/, infra/, api/cli/, tui/)
+- **Hard Constraints**: <400 lines/file, <60 lines/fn, zero production unwrap(), 0 warnings.
+- **Target Distribution**: Linux x86_64 standalone binary
 
 ## 3. Module & Interface Skeleton
 
-### `src/lib.rs` (Role: root, Lines: 5)
-- **Responsibility**: Crate entrypoint declaring public submodules.
-- **Imports**: `pub mod cli;`, `pub mod controller;`, `pub mod domain;`, `pub mod infra;`, `pub mod ui;`
-- **Consumers**: `src/main.rs`, integration tests.
-- **Side Effects / I/O**: None.
-
-### `src/cli.rs` (Role: cli, Lines: 99)
-- **Responsibility**: Command-line argument definitions and flag parsing using `clap`.
-- **Imports**: `clap::{Parser, Subcommand, ValueEnum}`, `std::path::PathBuf`
+### `src/cli.rs` (Role: cli, Lines: 271)
+- **Responsibility**: Core cli logic in src/cli.rs
+- **Imports**: use clap :: { Args , Parser , Subcommand } , use std :: path :: PathBuf 
 - **Types & Enums**:
   ```rust
-  pub struct Cli { pub command: Commands }
-  pub enum Commands {
-      Diff(DiffArgs), Apply(ApplyArgs), List(ListArgs),
-      Login(LoginArgs), New(NewBotArgs), Init(InitArgs),
-  }
-  pub struct DiffArgs { pub file: PathBuf, pub bot: Option<String> }
-  pub struct ApplyArgs { pub file: PathBuf, pub bot: Option<String>, pub yes: bool, pub no_mtproto: bool }
-  pub struct ListArgs { pub file: PathBuf }
-  pub struct LoginArgs { pub config: Option<PathBuf> }
-  pub struct NewBotArgs { pub name: Option<String>, pub username: Option<String>, pub output: Option<PathBuf> }
-  pub struct InitArgs { pub output: PathBuf }
+  pub struct Cli
+  pub enum Commands
+  pub enum BotSubcommands
+  pub struct BotSetArgs
+  pub struct BotRmArgs
+  pub enum CmdSubcommands
+  pub struct CmdAddArgs
+  pub struct CmdRmArgs
+  pub struct CmdListArgs
+  pub struct ImportArgs
+  pub struct DiffArgs
+  pub struct ApplyArgs
+  pub struct ListArgs
+  pub struct LoginArgs
+  pub struct NewArgs
+  pub struct SendArgs
+  pub struct ReadArgs
+  pub struct InitArgs
   ```
-- **Consumers**: `src/main.rs`
-- **Side Effects / I/O**: None.
 
-### `src/domain/spec.rs` (Role: domain, Lines: 219)
-- **Responsibility**: Declarative TOML schema representation, deserialization, validation, and token resolution.
-- **Imports**: `anyhow::{bail, Context, Result}`, `serde::{Deserialize, Serialize}`, `std::{collections::BTreeMap, env, path::Path}`
+### `src/controller.rs` (Role: general, Lines: 200)
+- **Responsibility**: Core general logic in src/controller.rs
+- **Imports**: use crate :: domain :: diff :: { BotDiff , DiffAction } , use crate :: domain :: spec :: { BotSpec , BotsConfig } , use crate :: infra :: http :: BotApiClient , use crate :: infra :: mtproto :: { BotFatherClient , MtprotoEngine } , use anyhow :: { bail , Context , Result } , use colored :: Colorize , use std :: path :: Path 
+- **Public Functions & Signatures**:
+  ```rust
+  async fn compute_single_diff (bot_id : & str , bot_spec : & BotSpec) -> Result < BotDiff >
+  fn select_target_bots < 'a > (config : & 'a BotsConfig , filter : Option < & str > ,) -> Result < Vec < (String , & 'a BotSpec) > >
+  async fn apply_action (bot_id : & str , bot_spec : & BotSpec , action : & DiffAction , http : & BotApiClient , http_only : bool , mtproto : & mut Option < MtprotoEngine > ,) -> Result < () >
+  ```
+
+### `src/domain/diff.rs` (Role: domain, Lines: 329)
+- **Responsibility**: Core domain logic in src/domain/diff.rs
+- **Imports**: use super :: spec :: { BotSpec , CommandSpec } , use serde :: { Deserialize , Serialize } 
 - **Types & Enums**:
   ```rust
-  pub struct FleetSpec { pub settings: GlobalSettings, pub bots: BTreeMap<String, BotSpec> }
-  pub struct GlobalSettings { pub default_language: Option<String> }
-  pub struct BotSpec { pub name: Option<String>, pub token: String, pub avatar: Option<String>, pub cover: Option<String>, pub description: Option<DescriptionSpec>, pub short_description: Option<DescriptionSpec>, pub settings: Option<BotSettingsSpec>, pub commands: Vec<BotCommandSpec> }
-  pub struct DescriptionSpec { pub text: String, pub language_code: Option<String> }
-  pub struct BotSettingsSpec { pub privacy_mode: Option<bool>, pub can_join_groups: Option<bool>, pub inline_mode: Option<bool> }
-  pub struct BotCommandSpec { pub command: String, pub description: String, pub language_code: Option<String> }
+  pub struct RemoteBotState
+  pub enum DiffAction
+  pub enum ChangeType
+  pub struct FieldDiff
+  pub struct CommandDiff
+  pub struct BotDiff
   ```
 - **Public Functions & Signatures**:
   ```rust
-  impl FleetSpec {
-      pub fn from_file<P: AsRef<Path>>(path: P) -> Result<Self>;
-      pub fn parse_str(toml_str: &str) -> Result<Self>;
-      pub fn validate(&self) -> Result<()>;
-  }
-  impl BotSpec {
-      pub fn resolve_token(&self) -> Option<String>;
-  }
+  fn is_in_sync (& self) -> bool
+  fn compute (bot_id : & str , desired : & BotSpec , remote : & RemoteBotState) -> Self
   ```
-- **Consumers**: `src/controller.rs`, `src/domain/diff.rs`, `src/main.rs`.
-- **Side Effects / I/O**: Reads files from disk (`std::fs::read_to_string`), reads environment variables (`std::env::var`), supports smart fallback to `~/.config/ryoiki/telegram.json` and `~/.config/tayori/config.toml` or `file:...` references.
 
-### `src/domain/diff.rs` (Role: domain, Lines: 325)
-- **Responsibility**: Reconciles live Telegram state against local desired spec and computes discrete diff actions.
-- **Imports**: `super::spec::*`, `crate::infra::http::types::*`, `colored::*`, `std::path::PathBuf`
+### `src/domain/spec.rs` (Role: domain, Lines: 401)
+- **Responsibility**: Core domain logic in src/domain/spec.rs
+- **Imports**: use anyhow :: { bail , Context , Result } , use serde :: { Deserialize , Serialize } , use std :: collections :: BTreeMap , use std :: fs , use std :: path :: { Path , PathBuf } 
 - **Types & Enums**:
   ```rust
-  pub enum DiffAction {
-      UpdateName { from: Option<String>, to: String },
-      UpdateDescription { language_code: Option<String>, from: Option<String>, to: String },
-      UpdateShortDescription { language_code: Option<String>, from: Option<String>, to: String },
-      UpdateCommands { language_code: Option<String>, added: Vec<BotCommandSpec>, removed: Vec<BotCommand>, modified: Vec<(BotCommand, BotCommandSpec)> },
-      SetAvatar { path: PathBuf },
-      SetCover { path: PathBuf },
-      UpdatePrivacyMode { to: bool },
-      UpdateGroupJoin { to: bool },
-      UpdateInlineMode { to: bool },
-  }
-  pub struct BotDiff { pub bot_id: String, pub actions: Vec<DiffAction> }
+  pub struct BotsConfig
+  pub struct GlobalSettings
+  pub struct TextSpec
+  pub struct BotSettingsSpec
+  pub struct CommandSpec
+  pub struct BotSpec
   ```
 - **Public Functions & Signatures**:
   ```rust
-  impl BotDiff {
-      pub fn compute(bot_id: &str, desired: &BotSpec, live_state: &LiveBotState) -> Self;
-      pub fn is_in_sync(&self) -> bool;
-      pub fn has_mtproto_actions(&self) -> bool;
-  }
+  fn from_file < P : AsRef < Path > > (path : P) -> Result < Self >
+  fn parse_str (raw : & str) -> Result < Self >
+  fn validate (& self) -> Result < () >
+  fn save_file < P : AsRef < Path > > (& self , path : P) -> Result < () >
+  fn get_or_create_bot (& mut self , id : & str) -> & mut BotSpec
+  fn remove_bot (& mut self , id : & str) -> bool
+  fn add_or_update_command (& mut self , bot_id : & str , command : & str , description : String ,) -> Result < () >
+  fn remove_command (& mut self , bot_id : & str , command : & str) -> bool
+  fn resolve_token (& self) -> Option < String >
+  fn validate (& self , bot_id : & str) -> Result < () >
   ```
-- **Consumers**: `src/controller.rs`, `src/ui/diff_view.rs`.
-- **Side Effects / I/O**: None (pure domain logic).
 
-### `src/infra/config.rs` (Role: infra, Lines: 103)
-- **Responsibility**: XDG configuration directory management, credential resolution for MTProto API, and session pathing.
-- **Imports**: `anyhow::{Context, Result}`, `serde::{Deserialize, Serialize}`, `std::{env, fs, path::PathBuf}`
+### `src/domain.rs` (Role: domain, Lines: 5)
+- **Responsibility**: Core domain logic in src/domain.rs
+- **Imports**: pub use diff :: { BotDiff , DiffAction , FieldDiff } , pub use spec :: { BotSpec , BotsConfig , CommandSpec } 
+
+### `src/infra/config.rs` (Role: infra, Lines: 117)
+- **Responsibility**: Core infra logic in src/infra/config.rs
+- **Imports**: use anyhow :: { Context , Result } , use serde :: { Deserialize , Serialize } , use std :: fs , use std :: path :: { Path , PathBuf } 
 - **Types & Enums**:
   ```rust
-  pub struct KurokoConfig { pub telegram: TelegramCredentials }
-  pub struct TelegramCredentials { pub api_id: i32, pub api_hash: String, pub session_file: Option<PathBuf> }
+  pub struct KurokoConfig
   ```
 - **Public Functions & Signatures**:
   ```rust
-  pub fn config_dir() -> Result<PathBuf>;
-  pub fn default_session_path() -> Result<PathBuf>;
-  impl KurokoConfig {
-      pub fn load(explicit_path: Option<&std::path::Path>) -> Result<Self>;
-      pub fn save_default() -> Result<PathBuf>;
-  }
+  fn config_dir () -> PathBuf
+  fn config_file () -> PathBuf
+  fn session_file () -> PathBuf
+  fn ensure_dir () -> Result < () >
+  fn load () -> Self
+  fn save (& self) -> Result < () >
+  fn get_api_credentials (& self) -> Option < (i32 , String) >
+  fn resolve_path (p : & str) -> PathBuf
+  fn resolve_bots_config_path (arg_path : & Path) -> PathBuf
   ```
-- **Consumers**: `src/main.rs`, `src/controller.rs`, `src/infra/mtproto/client.rs`.
-- **Side Effects / I/O**: Reads/writes `~/.config/kuroko/config.toml`, creates directory trees.
-
-### `src/infra/http/types.rs` (Role: infra, Lines: 57)
-- **Responsibility**: Strongly-typed serde models for Telegram HTTP Bot API responses.
-- **Imports**: `serde::{Deserialize, Serialize}`
-- **Types & Enums**:
-  ```rust
-  pub struct ApiResponse<T> { pub ok: bool, pub result: Option<T>, pub description: Option<String>, pub error_code: Option<i32> }
-  pub struct BotUser { pub id: i64, pub is_bot: bool, pub first_name: String, pub username: Option<String>, pub can_join_groups: Option<bool>, pub can_read_all_group_messages: Option<bool>, pub supports_inline_queries: Option<bool> }
-  pub struct BotName { pub name: String }
-  pub struct BotDescription { pub description: String }
-  pub struct BotShortDescription { pub short_description: String }
-  pub struct BotCommand { pub command: String, pub description: String }
-  pub struct LiveBotState { pub user: BotUser, pub name: Option<String>, pub description: Option<String>, pub short_description: Option<String>, pub commands: Vec<BotCommand> }
-  ```
-- **Consumers**: `src/infra/http/client.rs`, `src/domain/diff.rs`.
-- **Side Effects / I/O**: None.
 
 ### `src/infra/http/client.rs` (Role: infra, Lines: 174)
-- **Responsibility**: Asynchronous HTTP client wrapping Telegram Bot API endpoints.
-- **Imports**: `super::types::*`, `anyhow::{bail, Context, Result}`, `reqwest::Client`, `serde::Serialize`
+- **Responsibility**: Core infra logic in src/infra/http/client.rs
+- **Imports**: use super :: types :: { ApiResponse , SetCommandsPayload , SetDescriptionPayload , SetNamePayload , SetShortDescriptionPayload , TelegramBotCommand , TelegramBotDescription , TelegramBotName , TelegramBotShortDescription , TelegramUser , } , use crate :: domain :: diff :: RemoteBotState , use crate :: domain :: spec :: CommandSpec , use anyhow :: { bail , Context , Result } , use reqwest :: Client , use std :: time :: Duration 
 - **Types & Enums**:
   ```rust
-  pub struct BotApiClient { client: Client, token: String }
+  pub struct BotApiClient
   ```
 - **Public Functions & Signatures**:
   ```rust
-  impl BotApiClient {
-      pub fn new(token: String) -> Self;
-      pub async fn get_me(&self) -> Result<BotUser>;
-      pub async fn get_my_name(&self, language_code: Option<&str>) -> Result<Option<String>>;
-      pub async fn get_my_description(&self, language_code: Option<&str>) -> Result<Option<String>>;
-      pub async fn get_my_short_description(&self, language_code: Option<&str>) -> Result<Option<String>>;
-      pub async fn get_my_commands(&self, language_code: Option<&str>) -> Result<Vec<BotCommand>>;
-      pub async fn fetch_live_state(&self, language_code: Option<&str>) -> Result<LiveBotState>;
-      pub async fn set_my_name(&self, name: &str, language_code: Option<&str>) -> Result<()>;
-      pub async fn set_my_description(&self, description: &str, language_code: Option<&str>) -> Result<()>;
-      pub async fn set_my_short_description(&self, short_description: &str, language_code: Option<&str>) -> Result<()>;
-      pub async fn set_my_commands(&self, commands: &[BotCommand], language_code: Option<&str>) -> Result<()>;
-      pub async fn delete_my_commands(&self, language_code: Option<&str>) -> Result<()>;
-  }
+  fn new (token : & str) -> Self
+  fn token (& self) -> & str
+  async fn get_me (& self) -> Result < TelegramUser >
+  async fn get_my_name (& self) -> Result < String >
+  async fn set_my_name (& self , name : & str) -> Result < () >
+  async fn get_my_description (& self) -> Result < String >
+  async fn set_my_description (& self , description : & str) -> Result < () >
+  async fn get_my_short_description (& self) -> Result < String >
+  async fn set_my_short_description (& self , short_description : & str) -> Result < () >
+  async fn get_my_commands (& self) -> Result < Vec < CommandSpec > >
+  async fn set_my_commands (& self , commands : & [CommandSpec]) -> Result < () >
+  async fn fetch_remote_state (& self) -> Result < RemoteBotState >
   ```
-- **Consumers**: `src/controller.rs`.
-- **Side Effects / I/O**: Network I/O to `https://api.telegram.org`.
 
-### `src/infra/mtproto/session.rs` (Role: infra, Lines: 14)
-- **Responsibility**: SQLite session file management for Grammers MTProto storage.
-- **Imports**: `anyhow::{Context, Result}`, `grammers_session::SqliteSession`, `std::{path::Path, sync::Arc}`
-- **Public Functions & Signatures**:
-  ```rust
-  pub async fn open_session(path: &Path) -> Result<Arc<SqliteSession>>;
-  ```
-- **Consumers**: `src/infra/mtproto/client.rs`.
-- **Side Effects / I/O**: SQLite database creation/access on local filesystem.
-
-### `src/infra/mtproto/client.rs` (Role: infra, Lines: 84)
-- **Responsibility**: MTProto user client initialization and interactive 2FA/login flow.
-- **Imports**: `super::session::open_session`, `anyhow::{Context, Result}`, `dialoguer::{Password, Input}`, `grammers_client::{Client, Config, InitParams}`, `std::path::Path`
+### `src/infra/http/types.rs` (Role: infra, Lines: 57)
+- **Responsibility**: Core infra logic in src/infra/http/types.rs
+- **Imports**: use serde :: { Deserialize , Serialize } 
 - **Types & Enums**:
   ```rust
-  pub struct MtprotoClient { client: Client }
+  pub struct ApiResponse
+  pub struct TelegramUser
+  pub struct TelegramBotCommand
+  pub struct TelegramBotName
+  pub struct TelegramBotDescription
+  pub struct TelegramBotShortDescription
+  pub struct SetNamePayload
+  pub struct SetDescriptionPayload
+  pub struct SetShortDescriptionPayload
+  pub struct SetCommandsPayload
   ```
-- **Public Functions & Signatures**:
-  ```rust
-  impl MtprotoClient {
-      pub async fn connect(api_id: i32, session_path: &Path) -> Result<Self>;
-      pub async fn login_interactive(&self, api_id: i32, api_hash: &str) -> Result<()>;
-      pub fn client(&self) -> &Client;
-  }
-  ```
-- **Consumers**: `src/main.rs`, `src/controller.rs`.
-- **Side Effects / I/O**: Interactive terminal prompts (`dialoguer`), MTProto TCP/TLS connections to Telegram DC.
+
+### `src/infra/http.rs` (Role: infra, Lines: 4)
+- **Responsibility**: Core infra logic in src/infra/http.rs
+- **Imports**: pub use client :: BotApiClient 
 
 ### `src/infra/mtproto/botfather.rs` (Role: infra, Lines: 206)
-- **Responsibility**: Automates backstage `@BotFather` bot operations over MTProto userbot messages.
-- **Imports**: `anyhow::{bail, Context, Result}`, `grammers_client::{types::InputMedia, Client}`, `std::{path::Path, time::Duration}`, `tokio::time::sleep`
+- **Responsibility**: Core infra logic in src/infra/mtproto/botfather.rs
+- **Imports**: use anyhow :: { bail , Context , Result } , use grammers_client :: message :: InputMessage , use grammers_client :: Client , use grammers_session :: types :: PeerRef , use std :: path :: Path , use std :: time :: Duration , use tokio :: time :: sleep 
 - **Types & Enums**:
   ```rust
-  pub struct BotFatherAutomation<'a> { client: &'a Client }
+  pub struct BotFatherClient
   ```
 - **Public Functions & Signatures**:
   ```rust
-  impl<'a> BotFatherAutomation<'a> {
-      pub fn new(client: &'a Client) -> Self;
-      pub async fn send_and_wait_response(&self, text: &str) -> Result<String>;
-      pub async fn set_userpic(&self, bot_username: &str, photo_path: &Path) -> Result<()>;
-      pub async fn set_intro(&self, bot_username: &str, media_path: &Path) -> Result<()>;
-      pub async fn set_privacy(&self, bot_username: &str, enabled: bool) -> Result<()>;
-      pub async fn set_join_groups(&self, bot_username: &str, enabled: bool) -> Result<()>;
-      pub async fn set_inline(&self, bot_username: &str, enabled: bool) -> Result<()>;
-      pub async fn create_new_bot(&self, name: &str, username: &str) -> Result<String>;
-  }
-  pub fn extract_token(text: &str) -> Result<String>;
+  fn new (client : & 'a Client) -> Self
+  async fn get_botfather_peer (& self) -> Result < PeerRef >
+  async fn upload_bot_avatar < P : AsRef < Path > > (& self , bot_username : & str , image_path : P ,) -> Result < () >
+  async fn upload_bot_cover < P : AsRef < Path > > (& self , bot_username : & str , media_path : P ,) -> Result < () >
+  async fn toggle_privacy_mode (& self , bot_username : & str , enabled : bool) -> Result < () >
+  async fn toggle_group_joining (& self , bot_username : & str , enabled : bool) -> Result < () >
+  async fn create_new_bot (& self , display_name : & str , username : & str) -> Result < String >
+  fn extract_token_from_botfather_response (text : & str) -> Option < String >
   ```
-- **Consumers**: `src/controller.rs`, `src/main.rs`.
-- **Side Effects / I/O**: Sends and reads messages in dialogue with `@BotFather` over MTProto.
 
-### `src/ui/diff_view.rs` (Role: ui, Lines: 90)
-- **Responsibility**: Rich terminal visualization of calculated diff actions using colored symbols.
-- **Imports**: `crate::domain::diff::{BotDiff, DiffAction}`, `colored::*`
+### `src/infra/mtproto/chat.rs` (Role: infra, Lines: 145)
+- **Responsibility**: Core infra logic in src/infra/mtproto/chat.rs
+- **Imports**: use crate :: infra :: config :: KurokoConfig , use crate :: infra :: mtproto :: MtprotoEngine , use anyhow :: { bail , Context , Result } , use grammers_client :: message :: Message , use grammers_client :: tl , use grammers_client :: Client , use grammers_session :: types :: PeerRef , use std :: time :: { Duration , Instant } , use tokio :: time :: sleep 
 - **Public Functions & Signatures**:
   ```rust
-  pub fn render_diff(diff: &BotDiff);
+  async fn connect_authorized () -> Result < MtprotoEngine >
+  async fn resolve_peer (client : & Client , username : & str) -> Result < PeerRef >
+  fn render_message (msg : & Message) -> String
+  async fn send_and_wait (client : & Client , peer : PeerRef , text : & str , timeout : Duration ,) -> Result < () >
+  async fn read_latest (client : & Client , peer : PeerRef , count : usize) -> Result < () >
   ```
-- **Consumers**: `src/controller.rs`.
-- **Side Effects / I/O**: Standard output (`println!`).
 
-### `src/ui/table.rs` (Role: ui, Lines: 69)
-- **Responsibility**: Renders formatted ASCII dashboard table of all configured bots in fleet.
-- **Imports**: `crate::domain::spec::BotSpec`, `crate::infra::http::types::LiveBotState`, `colored::*`
+### `src/infra/mtproto/client.rs` (Role: infra, Lines: 89)
+- **Responsibility**: Core infra logic in src/infra/mtproto/client.rs
+- **Imports**: use super :: session :: load_or_create_session , use crate :: infra :: config :: KurokoConfig , use anyhow :: { bail , Context , Result } , use dialoguer :: Password , use grammers_client :: { Client , SenderPool } 
 - **Types & Enums**:
   ```rust
-  pub struct BotSummaryItem<'a> { pub id: &'a str, pub spec: &'a BotSpec, pub live: Option<&'a LiveBotState> }
+  pub struct MtprotoEngine
   ```
 - **Public Functions & Signatures**:
   ```rust
-  pub fn render_fleet_table(bots: &[BotSummaryItem]);
+  async fn connect (api_id : i32 , api_hash : & str) -> Result < Self >
+  fn client (& self) -> & Client
+  async fn is_authorized (& self) -> Result < bool >
+  async fn login_interactive (& self) -> Result < () >
   ```
-- **Consumers**: `src/controller.rs`.
-- **Side Effects / I/O**: Standard output (`println!`).
 
-### `src/controller.rs` (Role: api/dispatcher, Lines: 210)
-- **Responsibility**: High-level action coordinator executing reconciliation, diff rendering, and batch updates.
-- **Imports**: `crate::domain::{diff::*, spec::*}, crate::infra::http::client::BotApiClient, crate::infra::mtproto::{botfather::BotFatherAutomation, client::MtprotoClient}, crate::ui::{diff_view, table::{render_fleet_table, BotSummaryItem}}`
+### `src/infra/mtproto/session.rs` (Role: infra, Lines: 14)
+- **Responsibility**: Core infra logic in src/infra/mtproto/session.rs
+- **Imports**: use anyhow :: { Context , Result } , use grammers_session :: storages :: SqliteSession , use std :: path :: Path , use std :: sync :: Arc 
 - **Public Functions & Signatures**:
   ```rust
-  pub async fn diff_bot(bot_id: &str, spec: &BotSpec) -> Result<BotDiff>;
-  pub async fn apply_bot(bot_id: &str, spec: &BotSpec, diff: &BotDiff, mtproto: Option<&BotFatherAutomation<'_>>) -> Result<()>;
-  pub async fn list_fleet(spec: &FleetSpec) -> Result<()>;
+  async fn load_or_create_session < P : AsRef < Path > > (path : P) -> Result < Arc < SqliteSession > >
   ```
-- **Consumers**: `src/main.rs`.
-- **Side Effects / I/O**: Network calls via HTTP and MTProto, console outputs.
 
-### `src/mutate.rs` (Role: domain/mutation, Lines: 299)
-- **Responsibility**: Programmatic CLI mutations of bots.toml (bot metadata, command menus, and live host bot auto-import).
-- **Imports**: `crate::cli::*, crate::domain::spec::*, crate::infra::config::*, crate::infra::http::client::BotApiClient`
-- **Public Functions & Signatures**:
-  ```rust
-  pub fn handle_bot_set(args: &BotSetArgs) -> Result<()>;
-  pub fn handle_bot_rm(args: &BotRmArgs) -> Result<()>;
-  pub fn handle_cmd_add(args: &CmdAddArgs) -> Result<()>;
-  pub fn handle_cmd_rm(args: &CmdRmArgs) -> Result<()>;
-  pub fn handle_cmd_list(args: &CmdListArgs) -> Result<()>;
-  pub async fn handle_import(args: ImportArgs) -> Result<()>;
-  ```
-- **Consumers**: `src/main.rs`.
-- **Side Effects / I/O**: Reads/writes `bots.toml`, reads host configs (`~/.config/ryoiki`, `~/.config/tayori`), queries Bot API.
+### `src/infra/mtproto.rs` (Role: infra, Lines: 8)
+- **Responsibility**: Core infra logic in src/infra/mtproto.rs
+- **Imports**: pub use botfather :: BotFatherClient , pub use chat :: { connect_authorized , read_latest , resolve_peer , send_and_wait } , pub use client :: MtprotoEngine 
 
-### `src/main.rs` (Role: entrypoint, Lines: 298)
-- **Responsibility**: Binary entrypoint parsing CLI commands, resolving configs, prompting confirmations, and delegating execution.
-- **Imports**: `anyhow::{Context, Result}, clap::Parser, colored::*, dialoguer::Confirm, kuroko::{cli::*, controller::*, domain::spec::FleetSpec, infra::config::*, infra::mtproto::client::MtprotoClient, infra::mtproto::botfather::BotFatherAutomation}`
+### `src/infra.rs` (Role: infra, Lines: 7)
+- **Responsibility**: Core infra logic in src/infra.rs
+- **Imports**: pub use config :: KurokoConfig , pub use http :: BotApiClient , pub use mtproto :: MtprotoEngine 
+
+### `src/lib.rs` (Role: general, Lines: 6)
+- **Responsibility**: Core general logic in src/lib.rs
+
+### `src/main.rs` (Role: general, Lines: 334)
+- **Responsibility**: Core general logic in src/main.rs
+- **Imports**: use anyhow :: { Context , Result } , use clap :: Parser , use colored :: Colorize , use kuroko :: cli :: { ApplyArgs , Cli , Commands , DiffArgs , InitArgs , ListArgs , LoginArgs , NewArgs , ReadArgs , SendArgs , } , use kuroko :: controller :: { apply_action , compute_single_diff , select_target_bots } , use kuroko :: domain :: diff :: BotDiff , use kuroko :: domain :: spec :: BotsConfig , use kuroko :: infra :: config :: KurokoConfig , use kuroko :: infra :: http :: BotApiClient , use kuroko :: infra :: mtproto :: { BotFatherClient , MtprotoEngine } , use kuroko :: ui :: table :: FleetBotRow , use kuroko :: ui :: { render_diff , render_fleet_table } , use std :: fs , use std :: time :: Duration 
+
+### `src/mutate.rs` (Role: general, Lines: 299)
+- **Responsibility**: Core general logic in src/mutate.rs
+- **Imports**: use anyhow :: { bail , Context , Result } , use colored :: Colorize , use std :: fs , use std :: path :: Path , use crate :: cli :: { BotRmArgs , BotSetArgs , CmdAddArgs , CmdListArgs , CmdRmArgs , ImportArgs } , use crate :: domain :: spec :: { BotsConfig , TextSpec } , use crate :: infra :: config :: resolve_bots_config_path , use crate :: infra :: http :: client :: BotApiClient 
 - **Public Functions & Signatures**:
   ```rust
-  #[tokio::main]
-  async fn main() -> Result<()>;
+  fn handle_bot_set (args : & BotSetArgs) -> Result < () >
+  fn handle_bot_rm (args : & BotRmArgs) -> Result < () >
+  fn handle_cmd_add (args : & CmdAddArgs) -> Result < () >
+  fn handle_cmd_rm (args : & CmdRmArgs) -> Result < () >
+  fn handle_cmd_list (args : & CmdListArgs) -> Result < () >
+  async fn handle_import (args : ImportArgs) -> Result < () >
   ```
-- **Consumers**: CLI binary runner.
-- **Side Effects / I/O**: Reads CLI arguments, loads config files, terminal I/O, invokes controllers.
+
+### `src/ui/diff_view.rs` (Role: tui, Lines: 90)
+- **Responsibility**: Core tui logic in src/ui/diff_view.rs
+- **Imports**: use crate :: domain :: diff :: { BotDiff , ChangeType } , use colored :: Colorize 
+- **Public Functions & Signatures**:
+  ```rust
+  fn render_diff (diff : & BotDiff)
+  ```
+
+### `src/ui/table.rs` (Role: tui, Lines: 69)
+- **Responsibility**: Core tui logic in src/ui/table.rs
+- **Imports**: use colored :: Colorize 
+- **Types & Enums**:
+  ```rust
+  pub struct FleetBotRow
+  ```
+- **Public Functions & Signatures**:
+  ```rust
+  fn render_fleet_table (rows : & [FleetBotRow])
+  ```
+
+### `src/ui.rs` (Role: tui, Lines: 5)
+- **Responsibility**: Core tui logic in src/ui.rs
+- **Imports**: pub use diff_view :: render_diff , pub use table :: render_fleet_table 
 
 ## 4. Execution Lifecycle Trace
-1. **Startup**: `main()` parses CLI options via `Cli::parse()`.
-2. **Subcommand Dispatch**:
-   - `init`: Emits well-commented `bots.toml` starter configuration template.
-   - `login`: Connects MTProto client, challenges user for phone/code/password, persists session to SQLite.
-   - `new`: Authenticates MTProto, conducts `/newbot` dialogue with `@BotFather`, extracts API token, and optionally appends to `bots.toml`.
-   - `list`: Iterates all bots defined in `bots.toml`, calls `getMe` concurrently, prints consolidated ASCII status table.
-   - `diff`: Loads `bots.toml`, resolves tokens from env/plain, fetches live state via `fetch_live_state()`, computes `BotDiff`, renders colorized diff.
-   - `apply`: Computes diffs; prompts user for confirmation unless `--yes` is passed. Applies Bot API updates (`setMyCommands`, `setMyDescription`, etc.) and invokes MTProto `@BotFather` automation for avatars, covers, and group/privacy settings.
-3. **Exit**: Flushes output and terminates with exit code 0 or typed `anyhow` error.
+1. **Startup**: Entrypoint parses CLI flags & dispatches command.
+2. **Execution**: Core domain logic processes inputs and evaluates rules.
+3. **Persistence / I/O**: Domain logic calls infra for disk/terminal I/O.
+4. **Exit**: Graceful termination with standard exit codes.
 
 ## 5. Verification Commands
 ```bash
-# Build
-cargo build --release
-
-# Test Suite
+cargo build --release --target x86_64-unknown-linux-gnu
 cargo test --all-targets
-
-# Lint & Format
-cargo clippy --all-targets -- -D warnings
-cargo fmt --check
-
-# Smoke Test
-cargo run -- --help
-cargo run -- init --output test_fleet.toml
+cargo clippy --all-targets -- -D warnings && cargo fmt --check
 ```
-
-## 6. Recent Iteration Changes
-- **2026-10-02**: Initial architecture & full implementation of Kuroko:
-  - Added `Cargo.toml` with strict linting rules and locked dependencies.
-  - Implemented domain spec parser and validator (`src/domain/spec.rs`).
-  - Implemented state reconciler and diff generator (`src/domain/diff.rs`).
-  - Implemented Telegram HTTP Bot API client (`src/infra/http/`).
-  - Implemented Grammers MTProto client and `@BotFather` automation (`src/infra/mtproto/`).
-  - Implemented terminal dashboard table and colorized diff view (`src/ui/`).
-  - Implemented subcommands (`diff`, `apply`, `list`, `login`, `new`, `init`) with modular controller (`src/controller.rs`, `src/main.rs`).
-  - Tested test suite (8 passed, 0 warnings).
