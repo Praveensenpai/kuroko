@@ -15,8 +15,13 @@ impl MtprotoEngine {
         let session_path = KurokoConfig::session_file();
         let session = load_or_create_session(&session_path).await?;
 
+        // `SenderPool::new` only builds the pool. Its runner must be driven for
+        // the connection to carry any request, so spawn it here; otherwise the
+        // pool is dropped when this function returns and every invocation fails
+        // with `InvocationError::Dropped`.
         let pool = SenderPool::new(session, api_id);
-        let client = Client::new(pool.handle);
+        let client = Client::new(pool.handle.clone());
+        tokio::spawn(pool.runner.run());
 
         Ok(Self {
             client,

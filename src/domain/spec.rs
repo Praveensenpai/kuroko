@@ -389,7 +389,7 @@ mod tests {
     fn test_token_resolution_from_file() {
         let temp_dir = std::env::temp_dir();
         let json_file = temp_dir.join("test_token.json");
-        std::fs::write(&json_file, r#"{"my_token": "secret_file_123"}"#).unwrap();
+        assert!(std::fs::write(&json_file, r#"{"my_token": "secret_file_123"}"#).is_ok());
 
         let bot = BotSpec {
             token: Some(format!("file:{}:my_token", json_file.display())),
